@@ -45,20 +45,16 @@
                     <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-600 hover:underline">Google Cloud Console</a> and create a new project.</li>
                     <li>In the sidebar, navigate to <strong>APIs & Services > Library</strong>.</li>
                     <li>Search for and enable three APIs: <strong>Gmail API</strong>, <strong>Google Sheets API</strong>, and (very important!) the <strong>Google Picker API</strong>.</li>
+                    <li>Go to <strong>APIs & Services > OAuth consent screen</strong>. Find "Publishing status" and click "Publish App" to move it to "In production".</li>
                     <li>Go to <strong>APIs & Services > Credentials</strong>. Click <strong>+ CREATE CREDENTIALS</strong> and select <strong>OAuth client ID</strong>.</li>
-                    <li>Configure the OAuth consent screen if prompted (select User Type: External, then provide an app name and your email).</li>
                     <li>For Application type, select <strong>Web application</strong>.</li>
-                    <li>Under <strong>Authorized JavaScript origins</strong>, add the origin from where you are running this page (e.g., `http://localhost:8000` or `https://your-domain.com`).</li>
-                    <li>Under <strong>Authorized redirect URIs</strong>, click <strong>+ ADD URI</strong> and enter the exact URL of this page. You can copy it from your browser's address bar.</li>
+                    <li>Under <strong>Authorized JavaScript origins</strong>, add the URL where this page is hosted (e.g., `https://your-username.github.io`).</li>
+                    <li>Under <strong>Authorized redirect URIs</strong>, add the full, exact URL of this page (copy from your browser address bar).</li>
                     <li>Click <strong>Create</strong>, and copy your <strong>Client ID</strong>.</li>
                 </ol>
                 <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <h4 class="font-bold text-red-800">Troubleshooting a 403 'Forbidden' Error</h4>
-                    <p class="text-red-700">A 403 error when the file picker opens is almost always caused by one of these two issues:</p>
-                    <ul class="list-disc list-inside mt-1">
-                        <li>The <strong>Google Picker API</strong> is not enabled. Please double-check that it is enabled in the API Library.</li>
-                        <li>The <strong>Authorized JavaScript origins</strong> on your Client ID credentials do not match the URL where this app is running.</li>
-                    </ul>
+                    <h4 class="font-bold text-red-800">Troubleshooting</h4>
+                    <p class="text-red-700">If you get an error, it's almost always a mismatch between the URLs in your browser and the "Authorized" URLs in your Client ID settings. Make sure they match perfectly.</p>
                 </div>
                 <h3 class="font-bold text-lg mt-4 mb-2">Part 2: Get Your API Key</h3>
                  <ol class="list-decimal list-inside space-y-2">
@@ -112,7 +108,8 @@
             </div>
         </div>
     </div>
-    <script src="https://apis.google.com/js/api.js"></script>
+    <!-- Note: This script tag is for the Google API loader, it's required for the Picker -->
+    <script async defer src="https://apis.google.com/js/api.js"></script>
     <script>
         // --- DOM Elements ---
         const toggleInstructions = document.getElementById('toggleInstructions');
@@ -234,46 +231,21 @@
             } catch (error) { console.error('Error fetching profile:', error); signOut(); }
         }
 
-        // --- Google Picker Logic ---
+        // --- Google Picker Logic (Simplified and Corrected) ---
         selectSheetButton.addEventListener('click', () => {
-             gapi.load('auth', {'callback': onAuthApiLoad});
-             gapi.load('picker', {'callback': onPickerApiLoad});
+            // Simply load the picker API. We will use the existing token.
+            gapi.load('picker', createPicker);
         });
-        
-        function onAuthApiLoad() {
-             gapi.auth.authorize(
-                {
-                    'client_id': CLIENT_ID,
-                    'scope': SCOPES,
-                    'immediate': false
-                },
-                handleAuthResult);
-        }
-
-        function onPickerApiLoad() {
-            // This is a placeholder, the picker is created after auth.
-        }
-
-        function handleAuthResult(authResult) {
-            if (authResult && !authResult.error) {
-                oauthToken = authResult.access_token;
-                createPicker();
-            } else {
-                 console.error("Authentication failed:", authResult.error);
-                 alert("Authentication failed. Please try signing in again.");
-            }
-        }
-
 
         function createPicker() {
             if (!oauthToken) {
-                alert("Authorization token is missing. Please try again.");
+                alert("Authorization is missing. Please sign out and sign in again.");
                 return;
             }
             const view = new google.picker.View(google.picker.ViewId.SPREADSHEETS);
             const picker = new google.picker.PickerBuilder()
                 .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                .setAppId(CLIENT_ID.split('.')[0]) // Use the project number
+                .setAppId(CLIENT_ID.split('-')[0]) // Use the project number from client ID
                 .setOAuthToken(oauthToken)
                 .addView(view)
                 .setDeveloperKey(API_KEY)
@@ -283,10 +255,10 @@
         }
 
         function pickerCallback(data) {
-            if (data[google.picker.Response.ACTION] == google.picker.Action.PICKED) {
-                const doc = data[google.picker.Response.DOCUMENTS][0];
-                selectedSheetId = doc[google.picker.Document.ID];
-                selectedSheetInfo.textContent = `Selected: ${doc[google.picker.Document.NAME]}`;
+            if (data.action === google.picker.Action.PICKED) {
+                const doc = data.docs[0];
+                selectedSheetId = doc.id;
+                selectedSheetInfo.textContent = `Selected: ${doc.name}`;
                 selectedSheetInfo.classList.add('text-green-600');
             }
         }
@@ -303,6 +275,7 @@
                 const oneDayAgo = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
                 const query = `after:${oneDayAgo}`;
                 const listResponse = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`, { headers: { 'Authorization': `Bearer ${oauthToken}` }});
+                if (listResponse.status === 401) throw new Error("Permission denied. Please sign out and sign in again.");
                 if (!listResponse.ok) throw new Error('Could not list emails.');
                 const listData = await listResponse.json();
 
@@ -422,7 +395,7 @@
             selectedSheetId = '';
             oauthToken = null;
             localStorage.removeItem('accessToken');
-localStorage.removeItem('googleClientId');
+            localStorage.removeItem('googleClientId');
             localStorage.removeItem('geminiApiKey');
             CLIENT_ID = '';
             API_KEY = '';
