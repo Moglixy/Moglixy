@@ -44,19 +44,27 @@
                 <ol class="list-decimal list-inside space-y-2">
                     <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-600 hover:underline">Google Cloud Console</a> and create a new project.</li>
                     <li>In the sidebar, navigate to <strong>APIs & Services > Library</strong>.</li>
-                    <li>Search for and enable the <strong>Gmail API</strong>, the <strong>Google Sheets API</strong>, and the <strong>Google Picker API</strong>.</li>
+                    <li>Search for and enable three APIs: <strong>Gmail API</strong>, <strong>Google Sheets API</strong>, and (very important!) the <strong>Google Picker API</strong>.</li>
                     <li>Go to <strong>APIs & Services > Credentials</strong>. Click <strong>+ CREATE CREDENTIALS</strong> and select <strong>OAuth client ID</strong>.</li>
                     <li>Configure the OAuth consent screen if prompted (select User Type: External, then provide an app name and your email).</li>
                     <li>For Application type, select <strong>Web application</strong>.</li>
+                    <li>Under <strong>Authorized JavaScript origins</strong>, add the origin from where you are running this page (e.g., `http://localhost:8000` or `https://your-domain.com`).</li>
                     <li>Under <strong>Authorized redirect URIs</strong>, click <strong>+ ADD URI</strong> and enter the exact URL of this page. You can copy it from your browser's address bar.</li>
                     <li>Click <strong>Create</strong>, and copy your <strong>Client ID</strong>.</li>
                 </ol>
-                <h3 class="font-bold text-lg mt-4 mb-2">Part 2: Get Your Gemini API Key</h3>
+                <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <h4 class="font-bold text-red-800">Troubleshooting a 403 'Forbidden' Error</h4>
+                    <p class="text-red-700">A 403 error when the file picker opens is almost always caused by one of these two issues:</p>
+                    <ul class="list-disc list-inside mt-1">
+                        <li>The <strong>Google Picker API</strong> is not enabled. Please double-check that it is enabled in the API Library.</li>
+                        <li>The <strong>Authorized JavaScript origins</strong> on your Client ID credentials do not match the URL where this app is running.</li>
+                    </ul>
+                </div>
+                <h3 class="font-bold text-lg mt-4 mb-2">Part 2: Get Your API Key</h3>
                  <ol class="list-decimal list-inside space-y-2">
                     <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-600 hover:underline">Google AI Studio</a>.</li>
-                    <li>Sign in with your Google account.</li>
                     <li>Click <strong>Create API key in new project</strong>.</li>
-                    <li>Copy your generated API key. This will also be used as your Developer Key for the Picker.</li>
+                    <li>Copy your generated API key. This key will be used for both Gemini and as the Developer Key for the Google Picker.</li>
                 </ol>
             </div>
         </div>
@@ -64,8 +72,8 @@
         <div id="configSection">
             <p class="text-gray-600 mb-2">Enter your Google Cloud Client ID.</p>
             <input type="text" id="clientIdInput" placeholder="Google Client ID" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <p class="text-gray-600 mb-2">Enter your Gemini API Key (also used as Developer Key).</p>
-            <input type="password" id="geminiApiKeyInput" placeholder="Gemini API Key / Developer Key" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <p class="text-gray-600 mb-2">Enter your API Key (for Gemini & Google Picker).</p>
+            <input type="password" id="geminiApiKeyInput" placeholder="API Key" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500">
             <button id="saveConfigButton" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Save Configuration & Login</button>
         </div>
 
@@ -96,7 +104,6 @@
 
             <div id="sheetsSection" class="mt-4 p-4 bg-gray-50 rounded-lg border">
                  <h2 class="font-semibold text-gray-800 text-center mb-2">Send Digest to Google Sheets</h2>
-                 <!-- UPDATED: Button to open Picker -->
                  <button id="selectSheetButton" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-300 mb-2">Select Sheet from Drive</button>
                  <p id="selectedSheetInfo" class="text-center text-sm text-gray-600 h-5 mb-2"></p>
                  <input type="text" id="sheetRangeInput" placeholder="Sheet Name & Cell (e.g. Digest!A1)" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-2 focus:outline-none focus:ring-2 focus:ring-green-500">
@@ -229,18 +236,44 @@
 
         // --- Google Picker Logic ---
         selectSheetButton.addEventListener('click', () => {
-            gapi.load('picker', createPicker);
+             gapi.load('auth', {'callback': onAuthApiLoad});
+             gapi.load('picker', {'callback': onPickerApiLoad});
         });
+        
+        function onAuthApiLoad() {
+             gapi.auth.authorize(
+                {
+                    'client_id': CLIENT_ID,
+                    'scope': SCOPES,
+                    'immediate': false
+                },
+                handleAuthResult);
+        }
+
+        function onPickerApiLoad() {
+            // This is a placeholder, the picker is created after auth.
+        }
+
+        function handleAuthResult(authResult) {
+            if (authResult && !authResult.error) {
+                oauthToken = authResult.access_token;
+                createPicker();
+            } else {
+                 console.error("Authentication failed:", authResult.error);
+                 alert("Authentication failed. Please try signing in again.");
+            }
+        }
+
 
         function createPicker() {
             if (!oauthToken) {
-                alert("Authorization token is missing. Please sign in again.");
+                alert("Authorization token is missing. Please try again.");
                 return;
             }
             const view = new google.picker.View(google.picker.ViewId.SPREADSHEETS);
             const picker = new google.picker.PickerBuilder()
                 .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                .setAppId(CLIENT_ID.split('-')[0]) // Use the project number part of the client ID as App ID
+                .setAppId(CLIENT_ID.split('.')[0]) // Use the project number
                 .setOAuthToken(oauthToken)
                 .addView(view)
                 .setDeveloperKey(API_KEY)
@@ -250,10 +283,10 @@
         }
 
         function pickerCallback(data) {
-            if (data.action === google.picker.Action.PICKED) {
-                const doc = data.docs[0];
-                selectedSheetId = doc.id;
-                selectedSheetInfo.textContent = `Selected: ${doc.name}`;
+            if (data[google.picker.Response.ACTION] == google.picker.Action.PICKED) {
+                const doc = data[google.picker.Response.DOCUMENTS][0];
+                selectedSheetId = doc[google.picker.Document.ID];
+                selectedSheetInfo.textContent = `Selected: ${doc[google.picker.Document.NAME]}`;
                 selectedSheetInfo.classList.add('text-green-600');
             }
         }
@@ -389,7 +422,7 @@
             selectedSheetId = '';
             oauthToken = null;
             localStorage.removeItem('accessToken');
-            localStorage.removeItem('googleClientId');
+localStorage.removeItem('googleClientId');
             localStorage.removeItem('geminiApiKey');
             CLIENT_ID = '';
             API_KEY = '';
